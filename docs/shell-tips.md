@@ -319,6 +319,10 @@ that specific command. Also, you may find useful
 [explainshell](http://explainshell.com/), a webpage that explains what most
 commands do, part by part.
 
+Finally, [docopt](http://docopt.org/) can help you understand the syntax used
+by command-line tools to describe their interface, and make sense of strings like
+`cd: usage: cd [-L|[-P [-e]] [-@]] [dir]`).
+
 ## Cheatsheet
 
 There are many more commands in the shell, besides the ones explained in this
