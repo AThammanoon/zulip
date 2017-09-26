@@ -62,7 +62,7 @@
 }
 
 #stream_filters li ul.topic-list li {
-    padding-left: 29px;
+    padding: 0px 29px;
 }
 
 #stream-filters-container {
