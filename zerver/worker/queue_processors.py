@@ -19,8 +19,7 @@ from zerver.lib.error_notify import do_report_error
 from zerver.lib.feedback import handle_feedback
 from zerver.lib.queue import SimpleQueueClient, queue_json_publish
 from zerver.lib.timestamp import timestamp_to_datetime
-from zerver.lib.notifications import handle_missedmessage_emails, enqueue_welcome_emails, \
-    clear_scheduled_emails
+from zerver.lib.notifications import handle_missedmessage_emails, enqueue_welcome_emails
 from zerver.lib.push_notifications import handle_push_notification
 from zerver.lib.actions import do_send_confirmation_email, \
     do_update_user_activity, do_update_user_activity_interval, do_update_user_presence, \
@@ -154,7 +153,9 @@ class QueueProcessingWorker(object):
 class SignupWorker(QueueProcessingWorker):
     def consume(self, data):
         # type: (Mapping[str, Any]) -> None
-        clear_scheduled_emails(data['user_id'], ScheduledEmail.INVITATION_REMINDER)
+        user_profile = get_user_profile_by_id(data['user_id'])
+        logging.info("Processing signup for user %s in realm %s" % (
+            user_profile.email, user_profile.realm.string_id))
         if settings.MAILCHIMP_API_KEY and settings.PRODUCTION:
             endpoint = "https://%s.api.mailchimp.com/3.0/lists/%s/members" % \
                        (settings.MAILCHIMP_API_KEY.split('-')[1], settings.ZULIP_FRIENDS_LIST_ID)
@@ -169,8 +170,6 @@ class SignupWorker(QueueProcessingWorker):
             else:
                 r.raise_for_status()
 
-        enqueue_welcome_emails(data['user_id'])
-
 @assign_queue('invites')
 class ConfirmationEmailWorker(QueueProcessingWorker):
     def consume(self, data):
@@ -178,6 +177,7 @@ class ConfirmationEmailWorker(QueueProcessingWorker):
         invitee = get_prereg_user_by_email(data["email"])
         referrer = get_user_profile_by_id(data["referrer_id"])
         body = data["email_body"]
+        logging.info("Sending invitation for realm %s to %s" % (referrer.realm.string_id, invitee.email))
         do_send_confirmation_email(invitee, referrer, body)
 
         # queue invitation reminder for two days from now.
@@ -315,6 +315,9 @@ class SlowQueryWorker(QueueProcessingWorker):
         # type: () -> None
         slow_queries = self.q.drain_queue("slow_queries", json=True)
 
+        for query in slow_queries:
+            logging.info("Slow query: %s" % (query))
+
         if settings.ERROR_BOT is None:
             return
 
@@ -438,9 +441,10 @@ class FetchLinksEmbedData(QueueProcessingWorker):
         if message.content != event['message_content']:
             return
         if message.content is not None:
-            ums = UserMessage.objects.filter(
-                message=message.id).select_related("user_profile")
-            message_users = {um.user_profile for um in ums}
+            query = UserMessage.objects.filter(
+                message=message.id
+            )
+            message_user_ids = set(query.values_list('user_profile_id', flat=True))
 
             # Fetch the realm whose settings we're using for rendering
             realm = Realm.objects.get(id=event['message_realm_id'])
@@ -449,7 +453,7 @@ class FetchLinksEmbedData(QueueProcessingWorker):
             rendered_content = render_incoming_message(
                 message,
                 message.content,
-                message_users,
+                message_user_ids,
                 realm)
             do_update_embedded_data(
                 message.sender, message, message.content, rendered_content)

@@ -121,8 +121,10 @@ def json_change_settings(request, user_profile,
         if user_profile.realm.email_changes_disabled:
             return json_error(_("Email address changes are disabled in this organization."))
         error, skipped = validate_email(user_profile, new_email)
-        if error or skipped:
-            return json_error(error or skipped)
+        if error:
+            return json_error(error)
+        if skipped:
+            return json_error(skipped)
 
         do_start_email_change_process(user_profile, new_email)
         result['account_email'] = _("Check your email for a confirmation link.")
@@ -175,6 +177,8 @@ def update_display_settings_backend(request, user_profile,
 def json_change_notify_settings(request, user_profile,
                                 enable_stream_desktop_notifications=REQ(validator=check_bool,
                                                                         default=None),
+                                enable_stream_push_notifications=REQ(validator=check_bool,
+                                                                     default=None),
                                 enable_stream_sounds=REQ(validator=check_bool,
                                                          default=None),
                                 enable_desktop_notifications=REQ(validator=check_bool,
@@ -191,7 +195,7 @@ def json_change_notify_settings(request, user_profile,
                                                          default=None),
                                 pm_content_in_desktop_notifications=REQ(validator=check_bool,
                                                                         default=None)):
-    # type: (HttpRequest, UserProfile, Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool]) -> HttpResponse
+    # type: (HttpRequest, UserProfile, Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool], Optional[bool]) -> HttpResponse
     result = {}
 
     # Stream notification settings.

@@ -139,13 +139,13 @@ def send_response_message(bot_id, message, response_message_content):
     if recipient_type_name == 'stream':
         recipients = [message['display_recipient']]
         check_send_message(bot_user, get_client("OutgoingWebhookResponse"), recipient_type_name, recipients,
-                           message['subject'], response_message_content, realm, forwarder_user_profile=bot_user)
-    else:
-        # Private message; only send if the bot is there in the recipients
+                           message['subject'], response_message_content, realm)
+    elif recipient_type_name == 'private':
         recipients = [recipient['email'] for recipient in message['display_recipient']]
-        if bot_user.email in recipients:
-            check_send_message(bot_user, get_client("OutgoingWebhookResponse"), recipient_type_name, recipients,
-                               message['subject'], response_message_content, realm, forwarder_user_profile=bot_user)
+        check_send_message(bot_user, get_client("OutgoingWebhookResponse"), recipient_type_name, recipients,
+                           None, response_message_content, realm)
+    else:
+        raise JsonableError(_("Invalid message type"))
 
 def succeed_with_message(event, success_message):
     # type: (Dict[str, Any], Text) -> None
@@ -185,6 +185,8 @@ def do_rest_call(rest_operation, request_data, event, service_handler, timeout=N
     if error:
         raise JsonableError(error)
 
+    bot_user = get_user_profile_by_id(event['user_profile_id'])
+
     http_method = rest_operation['method']
     final_url = urllib.parse.urljoin(rest_operation['base_url'], rest_operation['relative_url_path'])
     request_kwargs = rest_operation['request_kwargs']
@@ -196,13 +198,24 @@ def do_rest_call(rest_operation, request_data, event, service_handler, timeout=N
             response_message = service_handler.process_success(response, event)
             if response_message is not None:
                 succeed_with_message(event, response_message)
-
-        # On 50x errors, try retry
-        elif str(response.status_code).startswith('5'):
-            request_retry(event, "Internal Server error at third party.")
         else:
-            failure_message = "Third party responded with %d" % (response.status_code)
-            fail_with_message(event, failure_message)
+            message_url = ("%(server)s/#narrow/stream/%(stream)s/subject/%(subject)s/near/%(id)s"
+                           % {'server': bot_user.realm.uri,
+                              'stream': event['message']['display_recipient'],
+                              'subject': event['message']['subject'],
+                              'id': str(event['message']['id'])})
+            logging.warning("Message %(message_url)s triggered an outgoing webhook, returning status "
+                            "code %(status_code)s.\n Content of response (in quotes): \""
+                            "%(response)s\""
+                            % {'message_url': message_url,
+                               'status_code': response.status_code,
+                               'response': response.content})
+            # On 50x errors, try retry
+            if str(response.status_code).startswith('5'):
+                request_retry(event, "Internal Server error at third party.")
+            else:
+                failure_message = "Third party responded with %d" % (response.status_code)
+                fail_with_message(event, failure_message)
 
     except requests.exceptions.Timeout:
         logging.info("Trigger event %s on %s timed out. Retrying" % (event["command"], event['service_name']))

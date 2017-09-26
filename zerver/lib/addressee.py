@@ -8,26 +8,27 @@ from django.utils.translation import ugettext as _
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.request import JsonableError
 from zerver.models import (
+    Realm,
     UserProfile,
     get_user_including_cross_realm,
 )
 import six
 
-def user_profiles_from_unvalidated_emails(emails, sender):
-    # type: (Iterable[Text], UserProfile) -> List[UserProfile]
+def user_profiles_from_unvalidated_emails(emails, realm):
+    # type: (Iterable[Text], Realm) -> List[UserProfile]
     user_profiles = []  # type: List[UserProfile]
     for email in emails:
         try:
-            user_profile = get_user_including_cross_realm(email, sender.realm)
+            user_profile = get_user_including_cross_realm(email, realm)
         except UserProfile.DoesNotExist:
             raise ValidationError(_("Invalid email '%s'") % (email,))
         user_profiles.append(user_profile)
     return user_profiles
 
-def get_user_profiles(emails, sender):
-    # type: (Iterable[Text], UserProfile) -> List[UserProfile]
+def get_user_profiles(emails, realm):
+    # type: (Iterable[Text], Realm) -> List[UserProfile]
     try:
-        return user_profiles_from_unvalidated_emails(emails, sender)
+        return user_profiles_from_unvalidated_emails(emails, realm)
     except ValidationError as e:
         assert isinstance(e.messages[0], six.string_types)
         raise JsonableError(e.messages[0])
@@ -80,12 +81,15 @@ class Addressee(object):
         return self._topic
 
     @staticmethod
-    def legacy_build(sender, message_type_name, message_to, topic_name):
-        # type: (UserProfile, Text, Sequence[Text], Text) -> Addressee
+    def legacy_build(sender, message_type_name, message_to, topic_name, realm=None):
+        # type: (UserProfile, Text, Sequence[Text], Text, Optional[Realm]) -> Addressee
 
         # For legacy reason message_to used to be either a list of
         # emails or a list of streams.  We haven't fixed all of our
         # callers yet.
+        if realm is None:
+            realm = sender.realm
+
         if message_type_name == 'stream':
             if len(message_to) > 1:
                 raise JsonableError(_("Cannot send to multiple streams"))
@@ -101,7 +105,7 @@ class Addressee(object):
             return Addressee.for_stream(stream_name, topic_name)
         elif message_type_name == 'private':
             emails = message_to
-            return Addressee.for_private(emails=emails, sender=sender)
+            return Addressee.for_private(emails, realm)
         else:
             raise JsonableError(_("Invalid message type"))
 
@@ -115,9 +119,9 @@ class Addressee(object):
         )
 
     @staticmethod
-    def for_private(emails, sender):
-        # type: (Sequence[Text], UserProfile) -> Addressee
-        user_profiles = get_user_profiles(emails, sender)
+    def for_private(emails, realm):
+        # type: (Sequence[Text], Realm) -> Addressee
+        user_profiles = get_user_profiles(emails, realm)
         return Addressee(
             msg_type='private',
             user_profiles=user_profiles,

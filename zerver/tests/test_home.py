@@ -6,6 +6,7 @@ import os
 import ujson
 
 from django.http import HttpResponse
+from django.test import override_settings
 from mock import MagicMock, patch
 from six.moves import urllib
 from typing import Any, Dict, List
@@ -17,11 +18,13 @@ from zerver.lib.test_helpers import (
 from zerver.lib.soft_deactivation import do_soft_deactivate_users
 from zerver.lib.test_runner import slow
 from zerver.models import (
-    get_realm, get_stream, get_user, UserProfile, UserMessage, Recipient
+    get_realm, get_stream, get_user, UserProfile, UserMessage, Recipient,
+    flush_per_request_caches, DefaultStream
 )
 from zerver.views.home import home, sent_time_in_epoch_seconds
 
 class HomeTest(ZulipTestCase):
+    @override_settings(REALMS_HAVE_SUBDOMAINS=True)
     @slow('big method')
     def test_home(self):
         # type: () -> None
@@ -68,6 +71,7 @@ class HomeTest(ZulipTestCase):
             "enable_online_push_notifications",
             "enable_sounds",
             "enable_stream_desktop_notifications",
+            "enable_stream_push_notifications",
             "enable_stream_sounds",
             "enter_sends",
             "first_in_realm",
@@ -143,9 +147,11 @@ class HomeTest(ZulipTestCase):
             "subscriptions",
             "test_suite",
             "timezone",
+            "total_uploads_size",
             "twenty_four_hour_time",
             "unread_msgs",
             "unsubscribed",
+            "upload_quota",
             "use_websockets",
             "user_id",
             "zulip_version",
@@ -167,7 +173,12 @@ class HomeTest(ZulipTestCase):
         self.client_post("/json/bots", bot_info)
 
         # Verify succeeds once logged-in
-        result = self._get_home_page(stream='Denmark')
+        flush_per_request_caches()
+        with queries_captured() as queries:
+            result = self._get_home_page(stream='Denmark')
+
+        self.assert_length(queries, 39)
+
         html = result.content.decode('utf-8')
 
         for html_bit in html_bits:
@@ -198,6 +209,42 @@ class HomeTest(ZulipTestCase):
 
         realm_bots_actual_keys = sorted([str(key) for key in page_params['realm_bots'][0].keys()])
         self.assertEqual(realm_bots_actual_keys, realm_bots_expected_keys)
+
+    def test_num_queries_with_streams(self):
+        # type: () -> None
+        main_user = self.example_user('hamlet')
+        other_user = self.example_user('cordelia')
+
+        realm_id = main_user.realm_id
+
+        self.login(main_user.email)
+
+        # Try to make page-load do extra work for various subscribed
+        # streams.
+        for i in range(10):
+            stream_name = 'test_stream_' + str(i)
+            stream = self.make_stream(stream_name)
+            DefaultStream.objects.create(
+                realm_id=realm_id,
+                stream_id=stream.id
+            )
+            for user in [main_user, other_user]:
+                self.subscribe(user, stream_name)
+
+        # Simulate hitting the page the first time to avoid some noise
+        # related to initial logins.
+        self._get_home_page()
+
+        # Then for the second page load, measure the number of queries.
+        flush_per_request_caches()
+        with queries_captured() as queries2:
+            result = self._get_home_page()
+
+        self.assert_length(queries2, 32)
+
+        # Do a sanity check that our new streams were in the payload.
+        html = result.content.decode('utf-8')
+        self.assertIn('test_stream_7', html)
 
     def _get_home_page(self, **kwargs):
         # type: (**Any) -> HttpResponse

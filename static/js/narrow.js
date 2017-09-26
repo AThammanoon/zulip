@@ -69,8 +69,10 @@ exports.activate = function (raw_operators, opts) {
         }
     } else if (filter.has_operator("is")) {
         exports.narrow_title = filter.operands("is")[0];
-    } else if (filter.has_operator("pm-with")) {
+    } else if (filter.has_operator("pm-with") ) {
         exports.narrow_title = "private";
+    } else if (filter.has_operator("group-pm-with") ) {
+        exports.narrow_title = "private group";
     }
 
     notifications.redraw_title();
@@ -552,6 +554,8 @@ function pick_empty_narrow_banner() {
             return $("#silent_user");
         }
         return $("#non_existing_user");
+    } else if (first_operator === "group-pm-with") {
+        return $("#empty_narrow_group_private_message");
     }
     return default_banner;
 }

@@ -17,6 +17,9 @@ set_global('activity', {
 set_global('drafts', {
 });
 
+set_global('page_params', {
+});
+
 set_global('overlays', {
 });
 
@@ -96,7 +99,7 @@ function stubbing(func_name_to_stub, test_function) {
     assert.equal(map_press(47).name, 'search'); // slash
     assert.equal(map_press(106).name, 'vim_down'); // j
 
-    assert.equal(map_down(219, false, true).name, 'esc_ctrl');
+    assert.equal(map_down(219, false, true).name, 'escape');
 
     // More negative tests.
     assert.equal(map_down(47), undefined);
@@ -174,7 +177,7 @@ function stubbing(func_name_to_stub, test_function) {
         assert_unmapped(' ');
         assert_unmapped('[]\\.,;');
         assert_unmapped('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
-        assert_unmapped('~!@#$%^*()_+{}:"<>?');
+        assert_unmapped('~!@#$%^*()_+{}:"<>');
     }
 
     _.each([return_true, return_false], function (settings_open) {
@@ -194,18 +197,21 @@ function stubbing(func_name_to_stub, test_function) {
     hotkey.processing_text = return_false;
     overlays.settings_open = return_false;
 
+    page_params.can_create_streams = true;
     overlays.streams_open = return_true;
     overlays.is_active = return_true;
     assert_mapping('S', 'subs.keyboard_sub');
-    overlays.is_active = return_false;
     assert_mapping('V', 'subs.view_stream');
     assert_mapping('n', 'subs.new_stream_clicked');
+    page_params.can_create_streams = false;
+    assert_unmapped('n');
+    overlays.is_active = return_false;
     overlays.streams_open = return_false;
 
     assert_mapping('?', 'ui.maybe_show_keyboard_shortcuts');
     assert_mapping('/', 'search.initiate_search');
-    assert_mapping('q', 'activity.initiate_search');
-    assert_mapping('w', 'stream_list.initiate_search');
+    assert_mapping('w', 'activity.initiate_search');
+    assert_mapping('q', 'stream_list.initiate_search');
 
     assert_mapping('A', 'narrow.stream_cycle_backward');
     assert_mapping('D', 'narrow.stream_cycle_forward');
@@ -247,7 +253,7 @@ function stubbing(func_name_to_stub, test_function) {
     assert_mapping('u', 'popovers.show_sender_info');
     assert_mapping('v', 'lightbox.show_from_selected_message');
     assert_mapping('i', 'popovers.open_message_menu');
-    assert_mapping(':', 'emoji_picker.toggle_emoji_popover', true);
+    assert_mapping(':', 'reactions.open_reactions_popover', true);
     assert_mapping('G', 'navigate.to_end');
     assert_mapping('M', 'muting_ui.toggle_mute');
 

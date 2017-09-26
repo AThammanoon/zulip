@@ -12,7 +12,7 @@ from django.template import RequestContext, loader
 from django.utils.timezone import now
 from django.core.exceptions import ValidationError
 from django.core import validators
-from zerver.models import UserProfile, Realm, PreregistrationUser, \
+from zerver.models import UserProfile, Realm, Stream, PreregistrationUser, MultiuseInvite, \
     name_changes_disabled, email_to_username, \
     completely_open, get_unique_open_realm, email_allowed_for_realm, \
     get_realm, get_realm_by_email_domain, get_user_profile_by_email
@@ -34,8 +34,9 @@ from zerver.lib.utils import get_subdomain
 from zerver.lib.timezone import get_all_timezones
 from zproject.backends import password_auth_enabled
 
-from confirmation.models import Confirmation, RealmCreationKey, check_key_is_valid, \
-    create_confirmation_link
+from confirmation.models import Confirmation, RealmCreationKey, ConfirmationKeyException, \
+    check_key_is_valid, create_confirmation_link, get_object_from_key, \
+    render_confirmation_key_error
 
 import logging
 import requests
@@ -269,13 +270,18 @@ def create_preregistration_user(email, request, realm_creation=False,
                                               realm_creation=realm_creation,
                                               password_required=password_required)
 
-def send_registration_completion_email(email, request, realm_creation=False):
-    # type: (str, HttpRequest, bool) -> None
+def send_registration_completion_email(email, request, realm_creation=False, streams=None):
+    # type: (str, HttpRequest, bool, Optional[List[Stream]]) -> None
     """
     Send an email with a confirmation link to the provided e-mail so the user
     can complete their registration.
     """
     prereg_user = create_preregistration_user(email, request, realm_creation)
+
+    if streams is not None:
+        prereg_user.streams = streams
+        prereg_user.save()
+
     activation_url = create_confirmation_link(prereg_user, request.get_host(), Confirmation.USER_REGISTRATION)
     send_email('zerver/emails/confirm_registration', to_email=email, from_address=FromAddress.NOREPLY,
                context={'activate_url': activation_url})
@@ -353,18 +359,26 @@ def redirect_to_deactivation_notice():
     # type: () -> HttpResponse
     return HttpResponseRedirect(reverse('zerver.views.registration.show_deactivation_notice'))
 
-def accounts_home(request):
-    # type: (HttpRequest) -> HttpResponse
+def accounts_home(request, multiuse_object=None):
+    # type: (HttpRequest, Optional[MultiuseInvite]) -> HttpResponse
     realm = get_realm_from_request(request)
     if realm and realm.deactivated:
         return redirect_to_deactivation_notice()
 
+    from_multiuse_invite = False
+    streams_to_subscribe = None
+
+    if multiuse_object:
+        realm = multiuse_object.realm
+        streams_to_subscribe = multiuse_object.streams.all()
+        from_multiuse_invite = True
+
     if request.method == 'POST':
-        form = HomepageForm(request.POST, realm=realm)
+        form = HomepageForm(request.POST, realm=realm, from_multiuse_invite=from_multiuse_invite)
         if form.is_valid():
             email = form.cleaned_data['email']
             try:
-                send_registration_completion_email(email, request)
+                send_registration_completion_email(email, request, streams=streams_to_subscribe)
             except smtplib.SMTPException as e:
                 logging.error('Error in accounts_home: %s' % (str(e),))
                 return HttpResponseRedirect("/config-error/smtp")
@@ -380,8 +394,20 @@ def accounts_home(request):
         form = HomepageForm(realm=realm)
     return render(request,
                   'zerver/accounts_home.html',
-                  context={'form': form, 'current_url': request.get_full_path},
+                  context={'form': form, 'current_url': request.get_full_path,
+                           'from_multiuse_invite': from_multiuse_invite},
                   )
+
+def accounts_home_from_multiuse_invite(request, confirmation_key):
+    # type: (HttpRequest, str) -> HttpResponse
+    multiuse_object = None
+    try:
+        multiuse_object = get_object_from_key(confirmation_key)
+    except ConfirmationKeyException as exception:
+        realm = get_realm_from_request(request)
+        if realm is None or realm.invite_required:
+            return render_confirmation_key_error(request, exception)
+    return accounts_home(request, multiuse_object=multiuse_object)
 
 def generate_204(request):
     # type: (HttpRequest) -> HttpResponse

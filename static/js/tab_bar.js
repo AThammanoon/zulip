@@ -73,6 +73,12 @@ function make_tab_data() {
                 tabs.push(make_tab(names.join(', '), hashed));
             }
 
+        } else if (filter.has_operator("group-pm-with")) {
+
+            tabs.push(make_tab("Group Private", '#narrow/group-pm-with',
+                                undefined, 'private_message '));
+
+
         } else if (filter.has_operand("is", "starred")) {
             tabs.push(make_tab("Starred", hashed));
         } else if (filter.has_operator("near")) {
@@ -129,19 +135,13 @@ exports.colorize_tab_bar = function () {
                            colorspace.getDecimalColor(color_for_stream), 0.2));
 
         if (stream_tab.hasClass("stream")) {
-            stream_tab.css('border-left-color',
-                           color_for_stream).css('background-color',
-                                                 color_for_stream);
+            stream_tab.css('background-color', color_for_stream);
             if (stream_tab.hasClass("inactive")) {
               stream_tab.hover (
                 function () {
-                 $(this).css('border-left-color',
-                             stream_light).css('background-color',
-                             stream_light);
+                 $(this).css('background-color', stream_light);
                 }, function () {
-                 $(this).css('border-left-color',
-                             color_for_stream).css('background-color',
-                                                   color_for_stream);
+                 $(this).css('background-color', color_for_stream);
                 }
               );
             }

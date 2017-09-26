@@ -36,7 +36,7 @@ from zerver.lib.test_runner import (
 
 from zerver.models import (
     get_display_recipient, Message, Realm, Recipient, Stream, Subscription,
-    DefaultStream, UserProfile, get_user_profile_by_id
+    DefaultStream, UserProfile, get_user_profile_by_id, active_user_ids,
 )
 
 from zerver.lib.actions import (
@@ -45,7 +45,7 @@ from zerver.lib.actions import (
     gather_subscriptions_helper, bulk_add_subscriptions, bulk_remove_subscriptions,
     gather_subscriptions, get_default_streams_for_realm, get_realm, get_stream,
     get_user, set_default_streams, check_stream_name,
-    create_stream_if_needed, create_streams_if_needed, active_user_ids,
+    create_stream_if_needed, create_streams_if_needed,
     do_deactivate_stream,
     stream_welcome_message,
 )
@@ -340,7 +340,7 @@ class StreamAdminTest(ZulipTestCase):
         stream_name2_exists = get_stream('stream_name2', realm)
         self.assertTrue(stream_name2_exists)
 
-        self.assertEqual(notified_user_ids, set(active_user_ids(realm)))
+        self.assertEqual(notified_user_ids, set(active_user_ids(realm.id)))
         self.assertIn(user_profile.id,
                       notified_user_ids)
         self.assertIn(self.example_user('prospero').id,
@@ -429,7 +429,7 @@ class StreamAdminTest(ZulipTestCase):
         notified_user_ids = set(events[0]['users'])
 
         stream = get_stream('stream_name1', realm)
-        self.assertEqual(notified_user_ids, set(active_user_ids(realm)))
+        self.assertEqual(notified_user_ids, set(active_user_ids(realm.id)))
         self.assertIn(user_profile.id,
                       notified_user_ids)
         self.assertIn(self.example_user('prospero').id,
@@ -743,13 +743,13 @@ class StreamAdminTest(ZulipTestCase):
 class DefaultStreamTest(ZulipTestCase):
     def get_default_stream_names(self, realm):
         # type: (Realm) -> Set[Text]
-        streams = get_default_streams_for_realm(realm)
+        streams = get_default_streams_for_realm(realm.id)
         stream_names = [s.name for s in streams]
         return set(stream_names)
 
     def get_default_stream_descriptions(self, realm):
         # type: (Realm) -> Set[Text]
-        streams = get_default_streams_for_realm(realm)
+        streams = get_default_streams_for_realm(realm.id)
         stream_descriptions = [s.description for s in streams]
         return set(stream_descriptions)
 
@@ -984,6 +984,17 @@ class SubscriptionPropertiesTest(ZulipTestCase):
                                '%s is not a boolean' % (property_name,))
 
         property_name = "audible_notifications"
+        result = self.client_post(
+            "/api/v1/users/me/subscriptions/properties",
+            {"subscription_data": ujson.dumps([{"property": property_name,
+                                                "value": "bad",
+                                                "stream_id": subs[0]["stream_id"]}])},
+            **self.api_auth(test_email))
+
+        self.assert_json_error(result,
+                               '%s is not a boolean' % (property_name,))
+
+        property_name = "push_notifications"
         result = self.client_post(
             "/api/v1/users/me/subscriptions/properties",
             {"subscription_data": ujson.dumps([{"property": property_name,
@@ -1618,7 +1629,7 @@ class SubscriptionAPITest(ZulipTestCase):
                     streams_to_sub,
                     dict(principals=ujson.dumps([email1, email2])),
                 )
-        self.assert_length(queries, 42)
+        self.assert_length(queries, 39)
 
         self.assert_length(events, 7)
         for ev in [x for x in events if x['event']['type'] not in ('message', 'stream')]:
@@ -2119,7 +2130,7 @@ class SubscriptionAPITest(ZulipTestCase):
     def test_subscriptions_add_notification_default_true(self):
         # type: () -> None
         """
-        When creating a subscription, the desktop and audible notification
+        When creating a subscription, the desktop, push, and audible notification
         settings for that stream are derived from the global notification
         settings.
         """
@@ -2127,6 +2138,7 @@ class SubscriptionAPITest(ZulipTestCase):
         invitee_email = user_profile.email
         invitee_realm = user_profile.realm
         user_profile.enable_stream_desktop_notifications = True
+        user_profile.enable_stream_push_notifications = True
         user_profile.enable_stream_sounds = True
         user_profile.save()
         current_stream = self.get_streams(invitee_email, invitee_realm)[0]
@@ -2140,12 +2152,13 @@ class SubscriptionAPITest(ZulipTestCase):
                              '<UserProfile: %s <Realm: zulip 1>> -> recip>' % (self.example_email('iago'),))
 
         self.assertTrue(subscription.desktop_notifications)
+        self.assertTrue(subscription.push_notifications)
         self.assertTrue(subscription.audible_notifications)
 
     def test_subscriptions_add_notification_default_false(self):
         # type: () -> None
         """
-        When creating a subscription, the desktop and audible notification
+        When creating a subscription, the desktop, push, and audible notification
         settings for that stream are derived from the global notification
         settings.
         """
@@ -2153,6 +2166,7 @@ class SubscriptionAPITest(ZulipTestCase):
         invitee_email = user_profile.email
         invitee_realm = user_profile.realm
         user_profile.enable_stream_desktop_notifications = False
+        user_profile.enable_stream_push_notifications = False
         user_profile.enable_stream_sounds = False
         user_profile.save()
         current_stream = self.get_streams(invitee_email, invitee_realm)[0]
@@ -2160,6 +2174,7 @@ class SubscriptionAPITest(ZulipTestCase):
         self.assert_adding_subscriptions_for_principal(invitee_email, invitee_realm, invite_streams)
         subscription = self.get_subscription(user_profile, invite_streams[0])
         self.assertFalse(subscription.desktop_notifications)
+        self.assertFalse(subscription.push_notifications)
         self.assertFalse(subscription.audible_notifications)
 
 
@@ -2454,7 +2469,7 @@ class GetSubscribersTest(ZulipTestCase):
             if not sub["name"].startswith("stream_"):
                 continue
             self.assertTrue(len(sub["subscribers"]) == len(users_to_subscribe))
-        self.assert_length(queries, 4)
+        self.assert_length(queries, 6)
 
     @slow("common_subscribe_to_streams is slow")
     def test_never_subscribed_streams(self):
@@ -2512,7 +2527,7 @@ class GetSubscribersTest(ZulipTestCase):
             with queries_captured() as queries:
                 sub_data = gather_subscriptions_helper(self.user_profile)
             never_subscribed = sub_data[2]
-            self.assert_length(queries, 3)
+            self.assert_length(queries, 5)
 
             # Ignore old streams.
             never_subscribed = [
@@ -2580,7 +2595,7 @@ class GetSubscribersTest(ZulipTestCase):
                 self.assertTrue(len(sub["subscribers"]) == len(users_to_subscribe))
             else:
                 self.assertTrue(len(sub["subscribers"]) == 0)
-        self.assert_length(queries, 4)
+        self.assert_length(queries, 5)
 
     def test_nonsubscriber(self):
         # type: () -> None

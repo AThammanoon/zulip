@@ -37,18 +37,28 @@ BLUE = '\x1b[34m'
 MAGENTA = '\x1b[35m'
 CYAN = '\x1b[36m'
 
-# Parent parser for cache cleaning scripts.
-GENERIC_CACHE_SCRIPT_PARSER = argparse.ArgumentParser(add_help=False)
-GENERIC_CACHE_SCRIPT_PARSER.add_argument(
-    "--threshold", dest="threshold_days", type=int, default=14,
-    nargs="?", metavar="<days>", help="Any cache which is not in "
-    "use by a deployment not older than threshold days(current "
-    "installation in dev) and older than threshold days will be "
-    "deleted. (defaults to 14)")
-GENERIC_CACHE_SCRIPT_PARSER.add_argument(
-    "--dry-run", dest="dry_run", action="store_true",
-    help="If specified then script will only print the caches "
-    "that it will delete/keep back. It will not delete any cache.")
+def parse_cache_script_args(description):
+    # type: (Text) -> argparse.Namespace
+    parser = argparse.ArgumentParser(description=description)
+
+    parser.add_argument(
+        "--threshold", dest="threshold_days", type=int, default=14,
+        nargs="?", metavar="<days>", help="Any cache which is not in "
+        "use by a deployment not older than threshold days(current "
+        "installation in dev) and older than threshold days will be "
+        "deleted. (defaults to 14)")
+    parser.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="If specified then script will only print the caches "
+        "that it will delete/keep back. It will not delete any cache.")
+    parser.add_argument(
+        "--verbose", dest="verbose", action="store_true",
+        help="If specified then script will print a detailed report "
+        "of what is being will deleted/kept back.")
+
+    args = parser.parse_args()
+    args.verbose |= args.dry_run    # Always print a detailed report in case of dry run.
+    return args
 
 def get_deployment_version(extract_path):
     # type: (str) -> str
@@ -179,8 +189,11 @@ def get_recent_deployments(threshold_days):
     recent = set()
     threshold_date = datetime.datetime.now() - datetime.timedelta(days=threshold_days)
     for dir_name in os.listdir(DEPLOYMENTS_DIR):
-        if not os.path.isdir(dir_name):
-            # Skip things like uwsgi sockets.
+        if not os.path.isdir(os.path.join(DEPLOYMENTS_DIR, dir_name)):
+            # Skip things like uwsgi sockets, symlinks, etc.
+            continue
+        if not os.path.exists(os.path.join(DEPLOYMENTS_DIR, dir_name, "zerver")):
+            # Skip things like "lock" that aren't actually a deployment directory
             continue
         try:
             date = datetime.datetime.strptime(dir_name, TIMESTAMP_FORMAT)
@@ -221,34 +234,23 @@ def get_caches_to_be_purged(caches_dir, caches_in_use, threshold_days):
             caches_to_purge.add(cache_dir)
     return caches_to_purge
 
-def purge_unused_caches(caches_dir, caches_in_use, threshold_days, dry_run, cache_type):
-    # type: (Text, Set[Text], int, bool, Text) -> None
+def purge_unused_caches(caches_dir, caches_in_use, cache_type, args):
+    # type: (Text, Set[Text], Text, argparse.Namespace) -> None
     all_caches = set([os.path.join(caches_dir, cache) for cache in os.listdir(caches_dir)])
-    caches_to_purge = get_caches_to_be_purged(caches_dir, caches_in_use, threshold_days)
+    caches_to_purge = get_caches_to_be_purged(caches_dir, caches_in_use, args.threshold_days)
     caches_to_keep = all_caches - caches_to_purge
 
-    if dry_run:
-        print("Performing a dry run...")
-    else:
-        print("Cleaning unused %s caches..." % (cache_type,))
-
-    for cache_dir in caches_to_purge:
-        print("Cleaning unused %s cache: %s" % (cache_type, cache_dir))
-        if not dry_run:
-            subprocess.check_call(["sudo", "rm", "-rf", cache_dir])
-
-    for cache_dir in caches_to_keep:
-        print("Keeping used %s cache: %s" % (cache_type, cache_dir))
-
-    print("Done!\n")
+    may_be_perform_purging(
+        caches_to_purge, caches_to_keep, cache_type, args.dry_run, args.verbose)
+    if args.verbose:
+        print("Done!")
 
 def generate_sha1sum_emoji(zulip_path):
     # type: (Text) -> Text
     ZULIP_EMOJI_DIR = os.path.join(zulip_path, 'tools', 'setup', 'emoji')
     sha = hashlib.sha1()
 
-    filenames = ['NotoColorEmoji.ttf', 'emoji_map.json', 'AndroidEmoji.ttf',
-                 'build_emoji', 'emoji_setup_utils.py']
+    filenames = ['emoji_map.json', 'build_emoji', 'emoji_setup_utils.py']
 
     for filename in filenames:
         file_path = os.path.join(ZULIP_EMOJI_DIR, filename)
@@ -259,8 +261,29 @@ def generate_sha1sum_emoji(zulip_path):
     PACKAGE_FILE_PATH = os.path.join(zulip_path, 'package.json')
     with open(PACKAGE_FILE_PATH, 'r') as fp:
         parsed_package_file = json.load(fp)
-        dependency_data = parsed_package_file['dependencies']
+    dependency_data = parsed_package_file['dependencies']
+
+    if 'emoji-datasource' in dependency_data:
         emoji_datasource_version = dependency_data['emoji-datasource'].encode('utf-8')
+    else:
+        emoji_datasource_version = b"0"
     sha.update(emoji_datasource_version)
 
     return sha.hexdigest()
+
+def may_be_perform_purging(dirs_to_purge, dirs_to_keep, dir_type, dry_run, verbose):
+    # type: (Set[Text], Set[Text], Text, bool, bool) -> None
+    if dry_run:
+        print("Performing a dry run...")
+    else:
+        print("Cleaning unused %ss..." % (dir_type,))
+
+    for directory in dirs_to_purge:
+        if verbose:
+            print("Cleaning unused %s: %s" % (dir_type, directory))
+        if not dry_run:
+            subprocess.check_call(["sudo", "rm", "-rf", directory])
+
+    for directory in dirs_to_keep:
+        if verbose:
+            print("Keeping used %s: %s" % (dir_type, directory))

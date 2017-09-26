@@ -530,7 +530,18 @@ def exclude_muting_conditions(user_profile, narrow):
     conditions = []
     stream_name = get_stream_name_from_narrow(narrow)
 
-    if stream_name is None:
+    stream_id = None
+    if stream_name is not None:
+        try:
+            # Note that this code works around a lint rule that
+            # says we should use access_stream_by_name to get the
+            # stream.  It is okay here, because we are only using
+            # the stream id to exclude data, not to include results.
+            stream_id = get_stream(stream_name, user_profile.realm).id
+        except Stream.DoesNotExist:
+            pass
+
+    if stream_id is None:
         rows = Subscription.objects.filter(
             user_profile=user_profile,
             active=True,
@@ -543,7 +554,7 @@ def exclude_muting_conditions(user_profile, narrow):
             condition = not_(column("recipient_id").in_(muted_recipient_ids))
             conditions.append(condition)
 
-    conditions = exclude_topic_mutes(conditions, user_profile, stream_name)
+    conditions = exclude_topic_mutes(conditions, user_profile, stream_id)
 
     return conditions
 
@@ -1089,12 +1100,12 @@ def update_message_backend(request, user_profile,
         # probably are not relevant for reprocessed alert_words,
         # mentions and similar rendering features.  This may be a
         # decision we change in the future.
-        ums = UserMessage.objects.filter(
+        query = UserMessage.objects.filter(
             message=message.id,
-            flags=~UserMessage.flags.historical)
+            flags=~UserMessage.flags.historical
+        )
 
-        message_users = UserProfile.objects.select_related().filter(
-            id__in={um.user_profile_id for um in ums})
+        message_user_ids = set(query.values_list('user_profile_id', flat=True))
 
         # We render the message using the current user's realm; since
         # the cross-realm bots never edit messages, this should be
@@ -1102,7 +1113,7 @@ def update_message_backend(request, user_profile,
         # Note: If rendering fails, the called code will raise a JsonableError.
         rendered_content = render_incoming_message(message,
                                                    content,
-                                                   message_users,
+                                                   message_user_ids,
                                                    user_profile.realm)
         links_for_embed |= message.links_for_preview
 

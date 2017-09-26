@@ -1,3 +1,7 @@
+# After editing this file, you MUST afterward run
+# /tools/update-locked-requirements to update requirements/dev_lock.txt
+# and requirements/prod_lock.txt.
+# See requirements/README.md for more detail.
 # Django itself; we use a slightly patched version
 Django==1.11.4
 
@@ -13,13 +17,13 @@ MarkupSafe==1.0
 Pygments==2.2.0
 
 # Needed for manage.py
-ipython==6.1.0
+ipython==6.2.0
 
 # Needed for Image Processing
 Pillow==4.2.1
 
 # Needed for building complex DB queries
-SQLAlchemy==1.1.13
+SQLAlchemy==1.1.14
 
 # Needed for password hashing
 argon2-cffi==16.3.0
@@ -36,7 +40,7 @@ boto==2.48.0
 certifi==2017.7.27.1
 
 # Used for scrapy as well as argon2
-cffi==1.10.0
+cffi==1.11.0
 
 chardet==3.0.4
 
@@ -57,10 +61,9 @@ django-auth-ldap==1.2.12
 django-bitfield==1.9.3
 
 # Django extension for sending data to statsd
-django-statsd-mozilla==0.3.16
+django-statsd-mozilla==0.4.0
 
 docopt==0.6.2
-fonttools==3.15.0
 
 # Needed for Android push notifications
 python-gcm==0.4
@@ -68,15 +71,18 @@ python-gcm==0.4
 gitdb==0.6.4
 
 # Needed for Google Apps mobile auth
-google-api-python-client==1.6.2
+google-api-python-client==1.6.3
 
 # Needed for the email mirror
 html2text==2016.9.19
 httplib2==0.10.3
 -e git+https://github.com/umairwaheed/talon.git@7d8bdc4dbcfcc5a73298747293b99fe53da55315#egg=talon==1.2.11
 
+# Needed for inlining the CSS in emails
+premailer==3.1.1
+
 # Needed for JWT-based auth
-PyJWT==1.5.2
+PyJWT==1.5.3
 
 # Needed for including other markdown files for user docs
 markdown-include==0.5.1
@@ -85,17 +91,17 @@ markdown-include==0.5.1
 mock==2.0.0
 
 oauth2client==4.1.2
-oauthlib==2.0.2
+oauthlib==2.0.4
 
 # Enhanced HTTPS support for httplib and urllib2 using PyOpenSSL
 # Needed by requests to send https request to some sites.
-ndg-httpsclient==0.4.2
+ndg-httpsclient==0.4.3
 
 # Needed to access rabbitmq
-pika==0.10.0
+pika==0.11.0
 
 # Needed to access our database
-psycopg2==2.7.3
+psycopg2==2.7.3.1
 
 pyasn1==0.3.2
 pyasn1-modules==0.0.11
@@ -113,16 +119,8 @@ pytz==2017.2
 # Needed for redis
 redis==2.10.6
 
-# Dependencies of our API
-requests==2.18.4
-idna==2.6
-urllib3==1.22
-
 requests_oauthlib==0.8.0
 rsa==3.4.2
-
-# Dependencies of our API
-simplejson==3.11.1
 
 # Needed for Python 2+3 compatibility
 six==1.10.0
@@ -135,7 +133,7 @@ sockjs-tornado==1.0.3
 sourcemap==0.2.1
 
 # Tornado used for server->client push system
-tornado==4.5.1
+tornado==4.5.2
 
 # Needed for Python static typing
 typing==3.6.2
@@ -172,8 +170,8 @@ beautifulsoup4==4.6.0
 # The Zulip API bindings, from its own repository.
 # We integrate with these tightly, so often it makes sense to pin a
 # version from Git rather than a release.
--e "git+https://github.com/zulip/python-zulip-api.git@6c47eda92bce0efe0297990965e90e79b54a1cd0#egg=zulip==0.3.2_git&subdirectory=zulip"
--e "git+https://github.com/zulip/python-zulip-api.git@6c47eda92bce0efe0297990965e90e79b54a1cd0#egg=zulip_bots==0.3.2+git&subdirectory=zulip_bots"
+-e "git+https://github.com/zulip/python-zulip-api.git@0.3.4#egg=zulip==0.3.4_git&subdirectory=zulip"
+-e "git+https://github.com/zulip/python-zulip-api.git@0.3.4#egg=zulip_bots==0.3.4+git&subdirectory=zulip_bots"
 
 # Used for Hesiod lookups, etc.
 py3dns==3.1.0

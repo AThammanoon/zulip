@@ -143,7 +143,21 @@ $(function () {
         $("#main_div").on("click", ".messagebox", select_message_function);
     // on the other hand, on mobile it should be done with a long tap.
     } else {
-        $("#main_div").on("longtap", ".messagebox", select_message_function);
+        $("#main_div").on("longtap", ".messagebox", function (e) {
+            // find the correct selection API for the browser.
+            var sel = window.getSelection ? window.getSelection() : document.selection;
+            // if one matches, remove the current selections.
+            // after a longtap that is valid, there should be no text selected.
+            if (sel) {
+                if (sel.removeAllRanges) {
+                    sel.removeAllRanges();
+                } else if (sel.empty) {
+                    sel.empty();
+                }
+            }
+
+            select_message_function.call(this, e);
+        });
     }
 
     function toggle_star(message_id) {
@@ -353,6 +367,7 @@ $(function () {
     $(document).on('click', ".home-link[data-name='home']", function (e) {
         ui_util.change_tab_to('#home');
         narrow.deactivate();
+        search.update_button_visibility();
         // We need to maybe scroll to the selected message
         // once we have the proper viewport set up
         setTimeout(navigate.maybe_scroll_to_selected, 0);
@@ -456,10 +471,18 @@ $(function () {
     });
 
     $("#join_unsub_stream").click(function (e) {
-        e.preventDefault();
         e.stopPropagation();
-
         window.location.hash = "streams/all";
+    });
+
+    $("#streams_inline_cog").click(function (e) {
+        e.stopPropagation();
+        window.location.hash = "streams";
+    });
+
+    $("#streams_filter_icon").click(function (e) {
+        e.stopPropagation();
+        stream_list.toggle_filter_displayed(e);
     });
 
     $("body").on("click", ".default_stream_row .remove-default-stream", function () {
@@ -704,13 +727,17 @@ $(function () {
             popovers.hide_all();
         }
 
-        // Unfocus our compose area if we click out of it. Don't let exits out
-        // of overlays or selecting text (for copy+paste) trigger cancelling.
-        if (compose_state.composing() && !$(e.target).is("a") &&
-            ($(e.target).closest(".overlay").length === 0) &&
-            window.getSelection().toString() === "" &&
-            ($(e.target).closest('.popover-content').length === 0)) {
-            compose_actions.cancel();
+        if (compose_state.composing()) {
+            if ($(e.target).is("a")) {
+                // Refocus compose message text box if link is clicked
+                $("#new_message_content").focus();
+            } else if (!$(e.target).closest(".overlay").length &&
+            !window.getSelection().toString() &&
+            !$(e.target).closest('.popover-content').length) {
+                // Unfocus our compose area if we click out of it. Don't let exits out
+                // of overlays or selecting text (for copy+paste) trigger cancelling.
+                compose_actions.cancel();
+            }
         }
     });
 

@@ -36,6 +36,7 @@ from zerver.lib.actions import (
     gather_subscriptions_helper, get_cross_realm_dicts,
     get_status_dict, streams_to_dicts_sorted
 )
+from zerver.lib.upload import get_total_uploads_size_for_user
 from zerver.tornado.event_queue import request_event_queue, get_user_events
 from zerver.models import Client, Message, Realm, UserPresence, UserProfile, \
     get_user_profile_by_id, \
@@ -54,7 +55,7 @@ def get_realm_user_dicts(user_profile):
              'is_bot': userdict['is_bot'],
              'full_name': userdict['full_name'],
              'timezone': userdict['timezone']}
-            for userdict in get_active_user_dicts_in_realm(user_profile.realm)]
+            for userdict in get_active_user_dicts_in_realm(user_profile.realm_id)]
 
 # Fetch initial data.  When event_types is not specified, clients want
 # all event types.  Whenever you add new code to this function, you
@@ -79,6 +80,12 @@ def fetch_initial_state_data(user_profile, event_types, queue_id,
 
     if want('attachments'):
         state['attachments'] = user_attachments(user_profile)
+
+    if want('upload_quota'):
+        state['upload_quota'] = user_profile.quota
+
+    if want('total_uploads_size'):
+        state['total_uploads_size'] = get_total_uploads_size_for_user(user_profile)
 
     if want('hotspots'):
         state['hotspots'] = get_next_hotspots(user_profile)
@@ -169,7 +176,7 @@ def fetch_initial_state_data(user_profile, event_types, queue_id,
     if want('stream'):
         state['streams'] = do_get_streams(user_profile)
     if want('default_streams'):
-        state['realm_default_streams'] = streams_to_dicts_sorted(get_default_streams_for_realm(user_profile.realm))
+        state['realm_default_streams'] = streams_to_dicts_sorted(get_default_streams_for_realm(user_profile.realm_id))
 
     if want('update_display_settings'):
         for prop in UserProfile.property_types:

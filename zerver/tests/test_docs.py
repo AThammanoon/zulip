@@ -71,6 +71,7 @@ class DocPageTest(ZulipTestCase):
                        'IFTTT'
                    ])
         self._test('/integrations/doc-html/travis', 'Your Travis CI notifications may look like:')
+        self._test('/integrations/doc-html/googlesearch', 'This bot allows users to do Google search queries')
         self._test('/devlogin/', 'Normal users', landing_page=False)
         self._test('/devtools/', 'Useful development URLs')
         self._test('/errors/404/', 'Page not found')
@@ -85,17 +86,8 @@ class DocPageTest(ZulipTestCase):
         self.assertEqual(result.status_code, 301)
         self.assertIn('hello', result['Location'])
 
-        result = self.client_get('/robots.txt')
-        self.assertEqual(result.status_code, 301)
-        self.assertIn('static/robots.txt', result['Location'])
-
-        result = self.client_get('/static/robots.txt')
+        result = self.client_get('/static/favicon.ico')
         self.assertEqual(result.status_code, 200)
-        self.assertIn(
-            'Disallow: /',
-            ''.join(str(x) for x in list(result.streaming_content))
-        )
-
 
 class IntegrationTest(TestCase):
     def test_check_if_every_integration_has_logo_that_exists(self):

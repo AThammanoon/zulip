@@ -68,6 +68,49 @@ def topic_narrow_url(realm, stream, topic):
     return u"%s%s/topic/%s" % (base_url, hash_util_encode(stream),
                                hash_util_encode(topic))
 
+def relative_to_full_url(base_url, content):
+    # type: (Text, Text) -> Text
+    # URLs for uploaded content and avatars are of the form:
+    # "/user_uploads/abc.png".
+    # "/avatar/username@example.com?s=30".
+    # Make them full paths. Explanation for all the regexes below:
+    # (\=['\"]) matches anything that starts with `=` followed by `"` or `'`.
+    # ([^\r\n\t\f <]) matches any character which is not a whitespace or `<`.
+    # ([^<]+>) matches any sequence of characters which does not contain `<`
+    # and ends in `>`.
+    # The last positive lookahead ensures that we replace URLs only within a tag.
+    content = re.sub(
+        r"(?<=\=['\"])/(user_uploads|avatar)/([^\r\n\t\f <]*)(?=[^<]+>)",
+        base_url + r"/\1/\2", content)
+
+    # Inline images can't be displayed in the emails as the request
+    # from the mail server can't be authenticated because it has no
+    # user_profile object linked to it. So we scrub the image but
+    # leave the link.
+    content = re.sub(
+        r"<img src=(\S+)/user_uploads/(\S+)>", "", content)
+
+    # URLs for emoji are of the form
+    # "static/generated/emoji/images/emoji/snowflake.png".
+    content = re.sub(
+        r"(?<=\=['\"])/static/generated/emoji/images/emoji/(?=[^<]+>)",
+        base_url + r"/static/generated/emoji/images/emoji/",
+        content)
+
+    # Realm emoji should use absolute URLs when referenced in missed-message emails.
+    content = re.sub(
+        r"(?<=\=['\"])/user_avatars/(\d+)/emoji/(?=[^<]+>)",
+        base_url + r"/user_avatars/\1/emoji/", content)
+
+    # Stream links need to be converted from relative to absolute. They
+    # have href values in the form of "/#narrow/stream/...".
+    content = re.sub(
+        r"(?<=\=['\"])/#narrow/stream/(?=[^<]+>)",
+        base_url + r"/#narrow/stream/",
+        content)
+
+    return content
+
 def build_message_list(user_profile, messages):
     # type: (UserProfile, List[Message]) -> List[Dict[str, Any]]
     """
@@ -84,44 +127,6 @@ def build_message_list(user_profile, messages):
         else:
             return ''
 
-    def relative_to_full_url(content):
-        # type: (Text) -> Text
-        # URLs for uploaded content are of the form
-        # "/user_uploads/abc.png". Make them full paths.
-        #
-        # There's a small chance of colliding with non-Zulip URLs containing
-        # "/user_uploads/", but we don't have much information about the
-        # structure of the URL to leverage.
-        content = re.sub(
-            r"/user_uploads/(\S*)",
-            user_profile.realm.uri + r"/user_uploads/\1", content)
-
-        # Our proxying user-uploaded images seems to break inline images in HTML
-        # emails, so scrub the image but leave the link.
-        content = re.sub(
-            r"<img src=(\S+)/user_uploads/(\S+)>", "", content)
-
-        # URLs for emoji are of the form
-        # "static/generated/emoji/images/emoji/snowflake.png".
-        content = re.sub(
-            r"/static/generated/emoji/images/emoji/",
-            user_profile.realm.uri + r"/static/generated/emoji/images/emoji/",
-            content)
-
-        # Realm emoji should use absolute URLs when referenced in missed-message emails.
-        content = re.sub(
-            r"/user_avatars/(\d+)/emoji/",
-            user_profile.realm.uri + r"/user_avatars/\1/emoji/", content)
-
-        # Stream links need to be converted from relative to absolute. They
-        # have href values in the form of "/#narrow/stream/...".
-        content = re.sub(
-            r"/#narrow/stream/",
-            user_profile.realm.uri + r"/#narrow/stream/",
-            content)
-
-        return content
-
     def fix_plaintext_image_urls(content):
         # type: (Text) -> Text
         # Replace image URLs in plaintext content of the form
@@ -129,20 +134,27 @@ def build_message_list(user_profile, messages):
         # with a simple hyperlink.
         return re.sub(r"\[(\S*)\]\((\S*)\)", r"\2", content)
 
-    def fix_emoji_sizes(html):
+    def fix_emojis(html):
         # type: (Text) -> Text
-        return html.replace(' class="emoji"', ' height="20px"')
+        return html.replace(' class="emoji"', ' height="20px" style="position: relative;top: 6px;"')
 
     def build_message_payload(message):
         # type: (Message) -> Dict[str, Text]
         plain = message.content
         plain = fix_plaintext_image_urls(plain)
-        plain = relative_to_full_url(plain)
+        # There's a small chance of colliding with non-Zulip URLs containing
+        # "/user_uploads/", but we don't have much information about the
+        # structure of the URL to leverage. We can't use `relative_to_full_url()`
+        # function here because it uses a stricter regex which will not work for
+        # plain text.
+        plain = re.sub(
+            r"/user_uploads/(\S*)",
+            user_profile.realm.uri + r"/user_uploads/\1", plain)
 
         assert message.rendered_content is not None
         html = message.rendered_content
-        html = relative_to_full_url(html)
-        html = fix_emoji_sizes(html)
+        html = relative_to_full_url(user_profile.realm.uri, html)
+        html = fix_emojis(html)
 
         return {'plain': plain, 'html': html}
 
@@ -392,6 +404,14 @@ def handle_missedmessage_emails(user_profile_id, missed_email_events):
             message_count_by_recipient_subject[recipient_subject],
         )
 
+def clear_scheduled_invitation_emails(email):
+    # type: (str) -> None
+    """Unlike most scheduled emails, invitation emails don't have an
+    existing user object to key off of, so we filter by address here."""
+    items = ScheduledEmail.objects.filter(address__iexact=email,
+                                          type=ScheduledEmail.INVITATION_REMINDER)
+    items.delete()
+
 def clear_scheduled_emails(user_id, email_type=None):
     # type: (int, Optional[int]) -> None
     items = ScheduledEmail.objects.filter(user_id=user_id)
@@ -405,8 +425,8 @@ def log_digest_event(msg):
     logging.basicConfig(filename=settings.DIGEST_LOG_PATH, level=logging.INFO)
     logging.info(msg)
 
-def enqueue_welcome_emails(user_id):
-    # type: (int) -> None
+def enqueue_welcome_emails(user):
+    # type: (UserProfile) -> None
     from zerver.context_processors import common_context
     if settings.WELCOME_EMAIL_SENDER is not None:
         # line break to avoid triggering lint rule
@@ -416,20 +436,19 @@ def enqueue_welcome_emails(user_id):
         from_name = None
         from_address = FromAddress.SUPPORT
 
-    user_profile = get_user_profile_by_id(user_id)
-    unsubscribe_link = one_click_unsubscribe_link(user_profile, "welcome")
-    context = common_context(user_profile)
+    unsubscribe_link = one_click_unsubscribe_link(user, "welcome")
+    context = common_context(user)
     context.update({
         'unsubscribe_link': unsubscribe_link,
         'organization_setup_advice_link':
-        user_profile.realm.uri + '%s/help/getting-your-organization-started-with-zulip',
-        'is_realm_admin': user_profile.is_realm_admin,
+        user.realm.uri + '%s/help/getting-your-organization-started-with-zulip',
+        'is_realm_admin': user.is_realm_admin,
     })
     send_future_email(
-        "zerver/emails/followup_day1", to_user_id=user_id, from_name=from_name,
+        "zerver/emails/followup_day1", to_user_id=user.id, from_name=from_name,
         from_address=from_address, context=context, delay=datetime.timedelta(hours=1))
     send_future_email(
-        "zerver/emails/followup_day2", to_user_id=user_id, from_name=from_name,
+        "zerver/emails/followup_day2", to_user_id=user.id, from_name=from_name,
         from_address=from_address, context=context, delay=datetime.timedelta(days=1))
 
 def convert_html_to_markdown(html):

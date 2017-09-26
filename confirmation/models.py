@@ -20,7 +20,7 @@ from django.utils.timezone import now as timezone_now
 
 from zerver.lib.send_email import send_email
 from zerver.lib.utils import generate_random_token
-from zerver.models import PreregistrationUser, EmailChangeStatus
+from zerver.models import PreregistrationUser, EmailChangeStatus, MultiuseInvite
 from random import SystemRandom
 from six.moves import range
 import string
@@ -51,7 +51,7 @@ def generate_key():
     return ''.join(generator.choice(string.ascii_lowercase + string.digits) for _ in range(24))
 
 def get_object_from_key(confirmation_key):
-    # type: (str) -> Union[bool, PreregistrationUser, EmailChangeStatus]
+    # type: (str) -> Union[MultiuseInvite, PreregistrationUser, EmailChangeStatus]
     # Confirmation keys used to be 40 characters
     if len(confirmation_key) not in (24, 40):
         raise ConfirmationKeyException(ConfirmationKeyException.WRONG_LENGTH)
@@ -65,8 +65,9 @@ def get_object_from_key(confirmation_key):
         raise ConfirmationKeyException(ConfirmationKeyException.EXPIRED)
 
     obj = confirmation.content_object
-    obj.status = getattr(settings, 'STATUS_ACTIVE', 1)
-    obj.save(update_fields=['status'])
+    if hasattr(obj, "status"):
+        obj.status = getattr(settings, 'STATUS_ACTIVE', 1)
+        obj.save(update_fields=['status'])
     return obj
 
 def create_confirmation_link(obj, host, confirmation_type, url_args=None):
@@ -97,6 +98,7 @@ class Confirmation(models.Model):
     EMAIL_CHANGE = 3
     UNSUBSCRIBE = 4
     SERVER_REGISTRATION = 5
+    MULTIUSE_INVITE = 6
     type = models.PositiveSmallIntegerField()  # type: int
 
     def __unicode__(self):
@@ -116,6 +118,8 @@ _properties = {
     Confirmation.EMAIL_CHANGE: ConfirmationType('zerver.views.user_settings.confirm_email_change'),
     Confirmation.UNSUBSCRIBE: ConfirmationType('zerver.views.unsubscribe.email_unsubscribe',
                                                validity_in_days=1000000),  # should never expire
+    Confirmation.MULTIUSE_INVITE: ConfirmationType('zerver.views.registration.accounts_home_from_multiuse_invite',
+                                                   validity_in_days=settings.INVITATION_LINK_VALIDITY_DAYS)
 }
 
 # Conirmation pathways for which there is no content_object that we need to

@@ -122,6 +122,7 @@ UBUNTU_COMMON_APT_DEPENDENCIES = [
     "gettext",              # Used by makemessages i18n
     "curl",                 # Used for fetching PhantomJS as wget occasionally fails on redirects
     "netcat",               # Used for flushing memcached
+    "moreutils",            # Used for sponge command
 ] + VENV_DEPENDENCIES
 
 APT_DEPENDENCIES = {
@@ -208,13 +209,13 @@ def main(options):
 
     new_apt_dependencies_hash = sha_sum.hexdigest()
     last_apt_dependencies_hash = None
-
+    apt_hash_file_path = 'var/apt_dependencies_hash'
     try:
-        hash_file = open('var/apt_dependenices_hash', 'r+')
+        hash_file = open(apt_hash_file_path, 'r+')
         last_apt_dependencies_hash = hash_file.read()
     except IOError:
-        run(['touch', 'var/apt_dependenices_hash'])
-        hash_file = open('var/apt_dependenices_hash', 'r+')
+        run(['touch', apt_hash_file_path])
+        hash_file = open(apt_hash_file_path, 'r+')
 
     if (new_apt_dependencies_hash != last_apt_dependencies_hash):
         try:
@@ -225,7 +226,7 @@ def main(options):
             install_apt_deps()
         hash_file.write(new_apt_dependencies_hash)
     else:
-        print("No need to apt operations.")
+        print("No changes to apt dependencies, so skipping apt operations.")
 
     # Here we install node.
     run(["sudo", "scripts/lib/install-node"])
@@ -276,9 +277,13 @@ def main(options):
     run(["sudo", "chown", "%s:%s" % (user_id, user_id), EMOJI_CACHE_PATH])
     run(["tools/setup/emoji/build_emoji"])
 
+    # copy over static files from the zulip_bots package
+    run(["tools/setup/generate_zulip_bots_static_files"])
+
     run(["tools/setup/build_pygments_data.py"])
     run(["scripts/setup/generate_secrets.py", "--development"])
     run(["tools/update-authors-json", "--use-fixture"])
+    run(["tools/inline-email-css"])
     if options.is_travis and not options.is_production_travis:
         run(["sudo", "service", "rabbitmq-server", "restart"])
         run(["sudo", "service", "redis-server", "restart"])

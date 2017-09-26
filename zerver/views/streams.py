@@ -26,7 +26,7 @@ from zerver.lib.streams import access_stream_by_id, access_stream_by_name, \
 from zerver.lib.validator import check_string, check_int, check_list, check_dict, \
     check_bool, check_variable_type
 from zerver.models import UserProfile, Stream, Realm, Subscription, \
-    Recipient, get_recipient, get_stream, get_active_user_dicts_in_realm, \
+    Recipient, get_recipient, get_stream, \
     get_system_bot, get_user
 
 from collections import defaultdict
@@ -445,6 +445,7 @@ def update_subscription_properties_backend(request, user_profile, subscription_d
     property_converters = {"color": check_string, "in_home_view": check_bool,
                            "desktop_notifications": check_bool,
                            "audible_notifications": check_bool,
+                           "push_notifications": check_bool,
                            "pin_to_top": check_bool}
     response_data = []
 

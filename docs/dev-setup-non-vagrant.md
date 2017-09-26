@@ -322,7 +322,9 @@ yarn install
 sudo mkdir /srv/zulip-emoji-cache
 sudo chown -R `whoami`:`whoami` /srv/zulip-emoji-cache
 ./tools/setup/emoji/build_emoji
+./tools/inline-email-css
 ./tools/setup/build_pygments_data.py
+./tools/setup/generate_zulip_bots_static_files
 ./scripts/setup/generate_secrets.py --development
 if [ $(uname) = "OpenBSD" ]; then
     sudo cp ./puppet/zulip/files/postgresql/zulip_english.stop /var/postgresql/tsearch_data/
@@ -388,7 +390,7 @@ Then you should create the Docker image based on Ubuntu Linux, first
 go to the directory with the Zulip source code:
 
 ```
-docker build -t user/zulipdev .
+docker build -t user/zulipdev -f Dockerfile-dev .
 ```
 
 
